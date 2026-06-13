@@ -1,0 +1,62 @@
+# Keeps a Supabase free-tier project active by issuing periodic reads against Postgres.
+# Supabase pauses inactive projects after ~7 days; this runs every 2 days.
+#
+# Required GitHub repository secrets:
+#   SUPABASE_URL  — e.g. https://xxxxxxxx.supabase.co
+#   SUPABASE_KEY  — anon key (recommended) or service role key
+name: Supabase keep-alive
+
+on:
+  schedule:
+    # Every 2 days at 12:00 UTC
+    - cron: '0 12 */2 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify secrets
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_KEY }}" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_KEY repository secrets."
+            exit 1
+          fi
+
+      - name: Read from Supabase table
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          set -euo pipefail
+
+          base_url="${SUPABASE_URL%/}"
+          table="tickr_events"
+
+          echo "Pinging ${base_url} (${table})..."
+
+          for i in 1 2 3 4 5; do
+            echo "--- read ${i}/5 ---"
+            response="$(curl -sS -w "\n%{http_code}" \
+              "${base_url}/rest/v1/${table}?select=sync_id&limit=1" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Accept: application/json")"
+
+            http_code="$(echo "${response}" | tail -n1)"
+            body="$(echo "${response}" | sed '$d')"
+
+            echo "HTTP ${http_code}"
+            echo "Body: ${body}"
+
+            if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
+              echo "Request failed."
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          echo "Keep-alive completed successfully."
