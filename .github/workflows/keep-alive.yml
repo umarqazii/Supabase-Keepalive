@@ -1,15 +1,9 @@
-# Keeps a Supabase free-tier project active by issuing periodic reads against Postgres.
-# Supabase pauses inactive projects after ~7 days; this runs every 2 days.
-#
-# Required GitHub repository secrets:
-#   SUPABASE_URL  — e.g. https://xxxxxxxx.supabase.co
-#   SUPABASE_KEY  — anon key (recommended) or service role key
 name: Supabase keep-alive
 
 on:
   schedule:
-    # Every 2 days at 12:00 UTC
-    - cron: '0 12 */2 * *'
+    # Every day at 12:00 UTC
+    - cron: '0 12 * * *'
   workflow_dispatch:
 
 jobs:
@@ -38,7 +32,9 @@ jobs:
           echo "Pinging ${base_url} (${table})..."
 
           for i in 1 2 3 4 5; do
-            echo "--- read ${i}/5 ---"
+            echo ""
+            echo "=== Attempt ${i}/5 ==="
+
             response="$(curl -sS -w "\n%{http_code}" \
               "${base_url}/rest/v1/${table}?select=sync_id&limit=1" \
               -H "apikey: ${SUPABASE_KEY}" \
@@ -48,8 +44,9 @@ jobs:
             http_code="$(echo "${response}" | tail -n1)"
             body="$(echo "${response}" | sed '$d')"
 
-            echo "HTTP ${http_code}"
-            echo "Body: ${body}"
+            echo "HTTP Status: ${http_code}"
+            echo "Response Body:"
+            echo "${body}"
 
             if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
               echo "Request failed."
@@ -59,4 +56,5 @@ jobs:
             sleep 2
           done
 
+          echo ""
           echo "Keep-alive completed successfully."
